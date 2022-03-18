@@ -1,0 +1,144 @@
+---
+title: "206_Project_code"
+output: html_document
+---
+```{r}
+install.packages("GGally")
+install.packages("caret")
+install.packages("scatterplot3d")
+install.packages("Metrics")
+install.packages("lars")
+install.packages("glmnet")
+install.packages("randomForest") 
+```
+
+```{r}
+#Data Preprocessing
+ab<-read.table("/Users/xixi/Library/Mobile Documents/com~apple~CloudDocs/206/Project/abalone.txt",sep = ",")
+names(ab) = c("Sex","Length","Diameter","Height","Whole weight","Shucked weight","Viscera weight","Shell weight","Rings")
+```
+
+```{r}
+#Missing values
+sum(is.na(ab))
+#Quality test
+summary(ab$Height==0)#2 data points,which height=0, whole weight>0的data point
+ab<-ab[which(ab$'Height' != 0),]
+#Outliers
+sapply(ab, class)
+boxplot(ab[,2:8],main='Box plot')
+```
+
+```{r}
+#Data transformation
+par(mfrow=c(2,4))
+ab29<-ab[,2:9]
+for(i in 1:8) {
+hist(ab29[, i], main=paste("Histogram of", names(ab29)[i]))}
+
+#choose how to transform `Diameter`
+par(mfrow=c(1,3))
+with(ab29,{
+  hist(log(`Diameter`))
+  hist((`Diameter`)^(1/3))
+  hist((`Diameter`)^2)
+})
+ab$`Diameter`<-(ab$`Diameter`)^2#(`Diameter`)^2
+
+#choose how to transform `Shucked weight`
+par(mfrow=c(1,3))
+with(ab29,{
+  hist(log(`Shucked weight`))
+  hist(1/(`Shucked weight`))
+  hist(sqrt(`Shucked weight`))
+})
+ab$`Shucked weight`<-sqrt(ab$`Shucked weight`)#sqrt(`Shucked weight`)
+ab$`Viscera weight`<-sqrt(ab$`Viscera weight`)#sqrt(`Viscera weight`)
+ab$`Shell weight`<-sqrt(ab$`Shell weight`)#sqrt(`Shell weight`)
+```
+
+```{r}
+#ggpairs
+library(GGally)
+ggpairs(ab,aes(color=Sex,alpha=0.8))+theme_grey(base_size=9)+theme_bw()+scale_colour_manual(values=c("#E69F00", "#56B4E9", "#009E73"))
+```
+
+
+```{r}
+#combine female and male as noninfant
+ab$'Sex'[which(ab$'Sex' != 'I')]<- 'NI'
+
+#Train test split
+set.seed(10) 
+sub<-sample(1:nrow(ab),round(nrow(ab)*4/5)) 
+length(sub) 
+ab_train<-ab[sub,]#take 4/5 of the data as the training set
+ab_test<-ab[-sub,]#take 1/5 of the data as the testing set
+```
+
+```{r}
+#Linear Model
+ab_lm <- lm(`Rings`~`Sex`+`Diameter`+`Length`+`Height`+`Whole weight`+`Shucked weight`+`Viscera weight`+`Shell weight`,data=ab_train)
+summary(ab_lm)
+ab_lm_rings<-predict(ab_lm, ab_test)
+ab_lm_prage<-round(ab_lm_rings+1.5)
+ab_test_age<-round(ab_test$Rings+1.5)
+
+# calculate MAE, MSE, RMSE and VIF
+library(car)
+maefun<-function(pred,obs) mean(abs(pred-obs))
+msefun<-function(pred,obs) mean((pred-obs)^2)
+nmsefun<-function(pred,obs) mean((pred-obs)^2)/mean((mean(obs)-obs)^2)
+
+lm_mae=maefun(ab_lm_prage,ab_test_age)
+paste0('MAE_lm=',lm_mae)
+lm_mse=msefun(ab_lm_prage,ab_test_age)
+paste0('MSE_lm=',lm_mse)
+lm_nmse=nmsefun(ab_lm_prage,ab_test_age)
+paste0('NMSE=',lm_nmse)
+lm_vif<-vif(ab_lm)
+lm_vif
+
+library(scatterplot3d)
+fit_2_sp<- scatterplot3d(ab_test[,2],ab_lm_rings, ab_test[,5], angle = 50, color = "#CC79A7", pch = 1, ylab = "Rings (ft)", xlab = "Length (mm)", zlab = "Whole weight (g)")
+```
+
+```{r}
+#Stepwise
+library(leaps)
+sub_set <- regsubsets(`Rings` ~ (.)^2, data = ab_train, nbest = 1, nvmax = 15, really.big=T,method = "exhaustive")
+sum_sub <- summary(sub_set)
+
+n <- nrow(ab_train)
+p.m <- rowSums(sum_sub$which) #number of coefficients in each model: p
+ssto <- sum((ab_train$`Rings`-mean(ab_train$`Rings`))^2)
+sse <- (1-sum_sub$rsq)*ssto
+aic <- n*log(sse/n)+2*p.m
+bic <- n*log(sse/n)+log(n)*p.m
+res_sub <- cbind(sum_sub$which, sse, sum_sub$rsq, sum_sub$adjr2,sum_sub$cp, bic, aic)
+res_sub
+
+ab_sw <- lm(`Rings`~`Whole weight`+Sex:`Shucked weight`+Sex:`Whole weight`+Length:`Viscera weight`+Diameter:Height+Diameter:`Shucked weight`+Height:`Shell weight`+`Whole weight`:`Shucked weight`+`Shucked weight`:`Shell weight`,data=ab_train)
+
+ab_sw_rings<-predict(ab_sw, ab_test)
+ab_sw_prage<-round(ab_sw_rings+1.5)
+
+# calculate MAE, MSE, RMSE
+sw_mae=maefun(ab_sw_prage,ab_test_age)
+paste0('MAE_sw=',sw_mae)
+sw_mse=msefun(ab_sw_prage,ab_test_age)
+paste0('MSE_sw=',sw_mse)
+sw_nmse=nmsefun(ab_sw_prage,ab_test_age)
+paste0('NMSE=',sw_nmse)
+sw_vif<-vif(ab_lm)
+sw_vif
+```
+
+
+
+
+
+
+
+
+
